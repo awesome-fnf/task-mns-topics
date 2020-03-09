@@ -1,0 +1,108 @@
+ROSTemplateFormatVersion: '2015-09-01'
+Transform: 'Aliyun::Serverless-2018-04-03'
+Parameters:
+  TopicName:
+    Type: String
+    Description: Topic name
+    MinLength: 1
+    MaxLength: 256
+
+Resources:
+  # MNS topic
+  Topic:
+    Type: 'ALIYUN::MNS::Topic'
+    Properties:
+      TopicName:
+        Ref: TopicName
+
+  # MNS topic http subscription
+  Subscription:
+    DependsOn: Service
+    Type: 'ALIYUN::MNS::Subscription'
+    Properties:
+      SubscriptionName:
+        Fn::Replace:
+          - <stack>:
+              Ref: ALIYUN::StackName
+          - http-<stack>
+      TopicName:
+        Ref: TopicName
+      NotifyContentFormat: 'JSON'
+      Endpoint:
+        Fn::Replace:
+          - <account>:
+              Ref: ALIYUN::TenantId
+            <region>:
+              Ref: ALIYUN::Region
+            <service>:
+              'Fn::GetAtt':
+                - Service
+                - ServiceName
+          - http://<account>.<region>.fc.aliyuncs.com/2016-08-15/proxy/<service>/callback/dummy
+
+  # FC service and function
+  Service:
+    Type: 'Aliyun::Serverless::Service'
+    Properties:
+      Description: service for serverless workflow mns topics demo
+      Policies:
+        - AliyunFnFFullAccess
+        - AliyunLogFullAccess
+    callback:
+      Type: 'Aliyun::Serverless::Function'
+      Properties:
+        FunctionName: callback
+        Description: function invoked by mns topic, then report task succeeded to serverless workflow
+        Handler: callback.handler
+        Runtime: python3
+        Timeout: 60
+        MemorySize: 128
+        CodeUri: src/callback.py
+      # http trigger
+      Events:
+        http:
+          Type: HTTP
+          Properties:
+            AuthType: ANONYMOUS
+            Methods: ['GET', 'POST']
+
+  # Serverless workflow
+  Flow:
+    Type: 'Aliyun::Serverless::Flow'
+    Properties:
+      Name: demo-mns-topics
+      Description: Fnf time trigger demo flow
+      Policies:
+        - AliyunMNSFullAccess
+      Definition:
+        Fn::Replace:
+          - <topic>:
+              Ref: TopicName
+          - |-
+            version: v1beta1
+            type: flow
+            steps:
+              - type: task
+                name: mns-topic-task
+                resourceArn: acs:mns:::/topics/<topic>/messages
+                pattern: waitForCallback
+                inputMappings:
+                  - target: messageBody
+                    source: $input.messageBody
+                  - target: taskToken
+                    source: $context.task.token
+                outputMappings:
+                  - target: status
+                    source: $local.status
+                serviceParams:
+                  MessageBody: $
+Outputs:
+  entrypointFlowName:
+    Description: 'Entry point flow name'
+    Value:
+      'Fn::GetAtt':
+        - 'Flow'
+        - 'Name'
+  applicationName:
+    Description: 'Application name'
+    Value: task-mns-topics

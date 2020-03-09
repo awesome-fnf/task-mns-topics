@@ -1,0 +1,27 @@
+Version: '2020-03-09'
+OnCreateStackSucceededAction: FnFStartExecution
+FnFStartExecution:
+  EntrypointFlowKey: entrypointFlowName
+  Input: |
+    {
+      "messageBody": "hello world"
+    }
+  FlowDefinitionPreview: |
+    version: v1beta1
+    type: flow
+    steps:
+     - type: task
+       name: mns-topic-task
+       resourceArn: acs:mns:::/topics/dummy/messages
+       pattern: waitForCallback
+       inputMappings:
+         - target: messageBody
+           source: $input.messageBody
+         - target: taskToken
+           source: $context.task.token
+       outputMappings:
+         - target: status
+           source: $local.status
+       serviceParams:
+         MessageBody: $
+
